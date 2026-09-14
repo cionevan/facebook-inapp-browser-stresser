@@ -16,6 +16,12 @@ Gerçek Chromium tarayıcısı, Oxylabs Residential Proxy rotasyonu, Facebook In
   - Reels (`/reel/...`), Postlar (`/posts/...`, `/permalink.php`), Videolar (`/watch/...`, `/videos/...`) ve doğrudan linkler.
   - "Şimdi Alışveriş Yap" (`SHOP_NOW`), "Daha Fazla Bilgi Al" (`LEARN_MORE`), "Kaydol" (`SIGN_UP`), "Bize Ulaşın" (`CONTACT_US`) ve gönderi metnindeki harici linkleri otomatik yakalayıp tıklar.
   - Facebook Link Shim ara uyarı ekranlarını (`flx/warn`) otomatik olarak aşar.
+- **Meta Reklam Kütüphanesi (Ad Library) Entegrasyonu:**
+  - `ads/library/?id=...` bağlantılarını otomatik tespit eder. Reklam kartından veya modalından hedef site linkini ve CTA aksiyonunu doğrudan çözer ve tıklar.
+- **Çoklu Hesap / Cookie Havuzu (Session Pool):**
+  - Tekil veya çoklu hesap JSON cookie formatını destekler. Her paralel istekte havuzdan otomatik rotasyon yapar.
+- **Akıllı Medya & Bant Genişliği Tasarrufu:**
+  - Reels ve video akışlarında kotayı korumak için video veri akışını %85-90 oranında sınırlar, ancak Meta'nın 3 saniyelik sürekli izleme telemetrisini korur.
 - **Dinamik Meta `fbclid` (Facebook Click Identifier) Enjeksiyonu:**
   - Hedef sitedeki Meta Pixel, CAPI ve analiz panellerinin ziyareti gerçek reklam tıklaması sayması için her istekte dinamik, benzersiz bir `fbclid=IwdGRjcAUU..._aem_...` parametresi üretir ve yönlendirir.
 - **Paralel & Dengeli Worker Mimarisi:** Belirtilen toplam istek sayısını paralel çalışan worker'lara dengeli şekilde paylaştırır.
@@ -29,8 +35,9 @@ Gerçek Chromium tarayıcısı, Oxylabs Residential Proxy rotasyonu, Facebook In
 stresser/
 ├── config.example.yaml   # Örnek yapılandırma şablonu (GitHub safe)
 ├── config.yaml           # Yerel yapılandırma dosyası (.gitignore'da)
-├── main.py               # Giriş noktası, parametre sorma & worker yöneticisi
-├── browser_worker.py     # Tarayıcı yaşam döngüsü, CTA tıklama & proxy mantığı
+├── main.py               # Giriş noktası, interaktif wizard & worker yöneticisi
+├── browser_worker.py     # Facebook Reels, Post, Video & CTA tıklama motoru
+├── ad_library_worker.py  # Meta Reklam Kütüphanesi (Ad Library) tık ve yönlendirme motoru
 ├── user_agents.py        # Gerçek Facebook Android & iOS User-Agent havuzu
 ├── reporter.py           # Canlı terminal raporlama & stresser.log yazıcı
 ├── requirements.txt      # Python bağımlılıkları
