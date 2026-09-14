@@ -10,11 +10,13 @@ Calistirma:
 
 import argparse
 import asyncio
+import atexit
 import base64
 import hashlib
 import json
 import os
 import re
+import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -29,14 +31,13 @@ from playwright_stealth import Stealth
 stealth = Stealth()
 
 # --- Tam Donusum Hunisi (Auto Mod) -------------------------------------------
-# Her oturum bu 5 eventi SIRALI ve GERCEKCI gecikmelerle basar.
-# Meta algoritmasina en guclu sinyal: tam bir satin alma yolculugu.
+# Hizli ve dogal akis: toplam sure ~3-4 saniyeye indirildi.
 AUTO_FUNNEL: list[dict[str, Any]] = [
     {"name": "PageView",         "params": {},                                                       "delay": 0.0},
-    {"name": "ViewContent",      "params": {"content_type": "product", "currency": "TRY"},           "delay": 3.5},
-    {"name": "AddToCart",        "params": {"content_type": "product", "currency": "TRY", "value": 299.0}, "delay": 4.0},
-    {"name": "InitiateCheckout", "params": {"currency": "TRY", "num_items": 1},                     "delay": 3.0},
-    {"name": "Purchase",         "params": {"currency": "TRY", "value": 349.0},                     "delay": 3.0},
+    {"name": "ViewContent",      "params": {"content_type": "product", "currency": "TRY"},           "delay": 0.8},
+    {"name": "AddToCart",        "params": {"content_type": "product", "currency": "TRY", "value": 299.0}, "delay": 1.0},
+    {"name": "InitiateCheckout", "params": {"currency": "TRY", "num_items": 1},                     "delay": 0.8},
+    {"name": "Purchase",         "params": {"currency": "TRY", "value": 349.0},                     "delay": 0.8},
 ]
 
 # --- Tek Event Secenekleri (Manuel Mod) --------------------------------------
@@ -235,9 +236,10 @@ async def _inject_worker(
         for i in range(n):
             req_num = start_idx + i
             sess_id = uuid.uuid4().hex[:8]
+            browser = None
+            context = None
             t_start = time.perf_counter()
             success = False
-
             try:
                 if config.get("use_proxy", True):
                     sess_user = (
@@ -323,9 +325,6 @@ async def _inject_worker(
                 async with _lock:
                     RESULTS.append({"success": success, "elapsed": elapsed})
 
-                await context.close()
-                await browser.close()
-
             except Exception as exc:
                 elapsed = time.perf_counter() - t_start
                 async with _lock:
@@ -335,6 +334,17 @@ async def _inject_worker(
                     f"[\033[93mW{worker_id:02d}\033[0m] "
                     f"\033[91m[FAIL]\033[0m {str(exc)[:80]}"
                 )
+            finally:
+                if context is not None:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                if browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
 
 
 # --- Ana Akis ----------------------------------------------------------------
@@ -442,6 +452,23 @@ async def main(cfg: dict[str, Any]) -> None:
     print(f"      Kontrol: {ev_list}  (~5-15 dk gecikme normaldir)\033[0m\n")
 
 
+def _cleanup_orphan_browsers() -> None:
+    """Program kapandiginda veya Ctrl+C yapildiginda arkada asili kalan Chrome processlerini temizle."""
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "chrome-headless-shell.exe", "/T"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_orphan_browsers)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Meta Pixel Event Injector")
     parser.add_argument("--config", default="config.yaml", help="Config dosyasinin yolu")
@@ -458,4 +485,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(cfg))
     except KeyboardInterrupt:
-        print("\n  [!] Kullanici tarafindan durduruldu.")
+        print("\n  [!] Kullanici tarafindan durduruldu. Asili processler temizleniyor...")
+    finally:
+        _cleanup_orphan_browsers()

@@ -10,8 +10,10 @@ config.yaml dosyasını düzenleyerek ayarları değiştirin.
 
 import argparse
 import asyncio
+import atexit
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -217,6 +219,22 @@ async def main(cfg: dict) -> None:
 
 
 
+def _cleanup_orphan_browsers() -> None:
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "chrome-headless-shell.exe", "/T"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_orphan_browsers)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Browser Stress Tester")
     parser.add_argument(
@@ -231,4 +249,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(cfg))
     except KeyboardInterrupt:
-        print("\n[!] Kullanıcı tarafından durduruldu.")
+        print("\n[!] Kullanıcı tarafından durduruldu. Asılı processler temizleniyor...")
+    finally:
+        _cleanup_orphan_browsers()
