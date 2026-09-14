@@ -33,31 +33,29 @@ class Reporter:
             self._results.append(result)
             count = len(self._results)
 
-        status_icon = "[OK]" if result.success else "[FAIL]"
-        status_str = str(result.status_code) if result.status_code else "ERR"
-
+        # Renkli ve modern log ciktisi
         if result.success:
-            line = (
-                f"[W{result.worker_id:02d}] {status_icon} {status_str} | "
-                f"{result.latency:.2f}s | "
-                f"UA: {result.user_agent_short} | "
-                f"-> {result.final_url}"
-            )
+            tag = "\033[92m[OK]\033[0m"
+            sc = f"\033[92m{result.status_code}\033[0m"
+            dest = f"\033[94m-> {result.final_url}\033[0m"
         else:
-            line = (
-                f"[W{result.worker_id:02d}] {status_icon} {status_str} | "
-                f"{result.latency:.2f}s | "
-                f"UA: {result.user_agent_short} | "
-                f"ERR: {result.error}"
-            )
+            tag = "\033[91m[FAIL]\033[0m"
+            sc = "\033[91mERR\033[0m"
+            dest = f"\033[91mERR: {result.error}\033[0m"
 
-        output_line = f"[{count:4d}/{self._total_expected}] {line}"
-        print(output_line[:120], flush=True)
+        w_tag = f"\033[93mW{result.worker_id:02d}\033[0m"
+        progress = f"\033[90m[{count:4d}/{self._total_expected}]\033[0m"
+        time_str = f"{result.latency:.2f}s"
 
-        # Log dosyasina tam halini kaydet
+        colored_line = f"{progress} [{w_tag}] {tag} {sc} | {time_str} | UA: {result.user_agent_short} | {dest}"
+        plain_line = f"[{count:4d}/{self._total_expected}] [W{result.worker_id:02d}] {'[OK]' if result.success else '[FAIL]'} {result.status_code or 'ERR'} | {time_str} | UA: {result.user_agent_short} | {result.final_url if result.success else result.error}"
+
+        print(colored_line, flush=True)
+
+        # Log dosyasina temiz halini kaydet
         try:
             with open(self._log_file, "a", encoding="utf-8") as f:
-                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {output_line}\n")
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {plain_line}\n")
         except Exception:
             pass
 
@@ -76,15 +74,16 @@ class Reporter:
         min_lat = min(latencies) if latencies else 0
         max_lat = max(latencies) if latencies else 0
         rps = total / elapsed if elapsed > 0 else 0
+        rate = (100 * success // total) if total else 0
 
-        sep = "=" * 50
-        print(f"\n{sep}")
-        print(f"  Toplam İstek  : {total}")
-        print(f"  Başarılı      : {success} (%{100 * success // total if total else 0})")
-        print(f"  Hata          : {errors}")
-        print(f"  Ort. Latency  : {avg_lat:.3f}s")
-        print(f"  Min Latency   : {min_lat:.3f}s")
-        print(f"  Max Latency   : {max_lat:.3f}s")
-        print(f"  Toplam Süre   : {elapsed:.1f}s")
-        print(f"  İstek/saniye  : {rps:.2f}")
-        print(sep)
+        print("\n\033[96m" + "━" * 58 + "\033[0m")
+        print("  \033[1;97m📊  TEST TAMAMLANDI - PERFORMANS RAPORU  📊\033[0m")
+        print("\033[96m" + "━" * 58 + "\033[0m")
+        print(f"  \033[1mToplam Gönderilen : \033[93m{total}\033[0m")
+        print(f"  \033[1mBaşarılı İstek    : \033[92m{success} (%{rate})\033[0m")
+        print(f"  \033[1mHatalı / Kayan    : \033[91m{errors}\033[0m")
+        print(f"  \033[1mOrtalama Gecikme  : \033[97m{avg_lat:.2f}s\033[0m")
+        print(f"  \033[1mMin / Max Gecikme : \033[90m{min_lat:.2f}s / {max_lat:.2f}s\033[0m")
+        print(f"  \033[1mToplam Geçen Süre : \033[95m{elapsed:.1f} saniye\033[0m")
+        print(f"  \033[1mHız (İstek / sn)  : \033[92m{rps:.2f} req/s\033[0m")
+        print("\033[96m" + "━" * 58 + "\033[0m\n")

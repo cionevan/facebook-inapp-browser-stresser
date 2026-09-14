@@ -249,21 +249,25 @@ async def run_worker(
             start = time.perf_counter()
 
             try:
-                browser = await pw.chromium.launch(
-                    headless=headless,
-                    proxy={
-                        "server": proxy_server,
-                        "username": session_proxy_user,
-                        "password": proxy_password,
-                    },
-                    args=[
+                launch_kwargs = {
+                    "headless": headless,
+                    "args": [
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
                         "--disable-infobars",
                         "--window-size=1280,800" if is_desktop_cookie else "--window-size=393,852",
                     ],
-                )
+                }
+
+                if config.get("use_proxy", True):
+                    launch_kwargs["proxy"] = {
+                        "server": proxy_server,
+                        "username": session_proxy_user,
+                        "password": proxy_password,
+                    }
+
+                browser = await pw.chromium.launch(**launch_kwargs)
 
                 if is_desktop_cookie:
                     context = await browser.new_context(

@@ -37,35 +37,41 @@ def load_config(path: str) -> dict:
                 cfg = yaml.safe_load(f) or {}
 
     # Ortam degiskenlerinden fallback al
+    cfg["use_proxy"] = str(os.getenv("USE_PROXY", cfg.get("use_proxy", True))).lower() in ("true", "1", "yes")
     cfg["oxylabs_username"] = os.getenv("OXYLABS_USERNAME", cfg.get("oxylabs_username", ""))
     cfg["oxylabs_password"] = os.getenv("OXYLABS_PASSWORD", cfg.get("oxylabs_password", ""))
     cfg["oxylabs_country"] = os.getenv("OXYLABS_COUNTRY", cfg.get("oxylabs_country", "TR"))
     cfg["oxylabs_host"] = os.getenv("OXYLABS_HOST", cfg.get("oxylabs_host", "pr.oxylabs.io"))
     cfg["oxylabs_port"] = int(os.getenv("OXYLABS_PORT", cfg.get("oxylabs_port", 7777)))
-    cfg["workers"] = int(os.getenv("WORKERS", cfg.get("workers", 5)))
+    cfg["workers"] = int(os.getenv("WORKERS", cfg.get("workers", 10)))
     cfg["requests_per_worker"] = int(os.getenv("REQUESTS_PER_WORKER", cfg.get("requests_per_worker", 20)))
     cfg["request_timeout"] = int(os.getenv("REQUEST_TIMEOUT", cfg.get("request_timeout", 30)))
     cfg["headless"] = str(os.getenv("HEADLESS", cfg.get("headless", True))).lower() in ("true", "1", "yes")
 
-    # Zorunlu alan kontrolü
-    required = ["oxylabs_username", "oxylabs_password"]
-    for key in required:
-        val = cfg.get(key, "")
-        if not val or val in ("kullanici_adiniz", "sifreniz", "your_username_here", "your_password_here"):
-            print(f"[HATA] config.yaml veya ortam değişkenlerinde '{key}' tanımlanmalı.")
-            print("Lütfen 'config.example.yaml' dosyasını 'config.yaml' olarak kopyalayıp bilgilerinizi girin.")
-            sys.exit(1)
-
     return cfg
+
+
+def ask_proxy(cfg: dict) -> None:
+    """Proxy kullanılıp kullanılmayacağını sor."""
+    prompt = "  \033[96m[?]\033[0m Proxy kullanılsın mı? (\033[92mE\033[0m/h): "
+    choice = input(prompt).strip().lower()
+    if choice in ("h", "hayır", "n", "no"):
+        cfg["use_proxy"] = False
+        print("  \033[93m[i]\033[0m Proxy devre dışı bırakıldı (Doğrudan yerel internet kullanılacak).\n")
+    else:
+        cfg["use_proxy"] = True
+        host = cfg.get("oxylabs_host", "proxy.smartproxy.net")
+        port = cfg.get("oxylabs_port", 3120)
+        print(f"  \033[92m[OK]\033[0m Proxy aktif: {host}:{port}\n")
 
 
 def ask_target_url(cfg: dict) -> None:
     """Başlangıçta hedef URL'yi kullanıcıdan sor, config'i güncelle."""
     default = cfg.get("target_url", "")
     if default and default != "http://localhost":
-        prompt = f"  Hedef URL [{default}]: "
+        prompt = f"  \033[96m[?]\033[0m Hedef Gönderi / Reels URL [\033[93m{default[:45]}...\033[0m]: "
     else:
-        prompt = "  Hedef URL: "
+        prompt = "  \033[96m[?]\033[0m Hedef Gönderi / Reels URL: "
 
     while True:
         url = input(prompt).strip()
@@ -74,7 +80,7 @@ def ask_target_url(cfg: dict) -> None:
         if url.startswith("http://") or url.startswith("https://"):
             cfg["target_url"] = url
             break
-        print("  [!] Geçerli bir URL girin (http:// veya https:// ile başlamalı)")
+        print("  \033[91m[!]\033[0m Geçerli bir URL girin (http:// veya https:// ile başlamalı)")
 
 
 def ask_total_requests(cfg: dict) -> int:
@@ -155,28 +161,34 @@ def print_banner(cfg: dict) -> None:
     total = cfg.get("total_requests", workers * cfg.get("requests_per_worker", 20))
     cookies = cfg.get("cookies_data")
     if isinstance(cookies, list) and cookies and isinstance(cookies[0], list):
-        has_cookie = f"Evet ({len(cookies)} hesap havuzu)"
+        has_cookie = f"\033[92mEvet ({len(cookies)} hesap havuzu)\033[0m"
     elif cookies:
-        has_cookie = "Evet (Tekil Oturum)"
+        has_cookie = "\033[92mEvet (Tekil Oturum)\033[0m"
     else:
-        has_cookie = "Hayır (Anonim Mobil FB)"
-    sep = "─" * 50
-    print(sep)
-    print("  [>>]  Browser Stress Tester")
-    print(sep)
-    print(f"  Hedef      : {cfg['target_url']}")
-    print(f"  Cookie     : {has_cookie}")
-    print(f"  Worker     : {workers}")
-    print(f"  Toplam     : {total}")
-    print(f"  Proxy      : {cfg['oxylabs_host']}:{cfg['oxylabs_port']}")
-    print(f"  Headless   : {cfg['headless']}")
-    print(f"  Timeout    : {cfg['request_timeout']}s")
-    print(sep)
-    print()
+        has_cookie = "\033[90mHayır (Anonim Mobil FB)\033[0m"
+
+    proxy_str = f"\033[92m{cfg.get('oxylabs_host')}:{cfg.get('oxylabs_port')}\033[0m" if cfg.get("use_proxy", True) else "\033[93mDevre Dışı (Yerel IP)\033[0m"
+
+    print("\n\033[95m" + "━" * 58 + "\033[0m")
+    print("  \033[1;97m🚀  META ADS & REELS VIEW STRESS TESTER  🚀\033[0m")
+    print("\033[95m" + "━" * 58 + "\033[0m")
+    print(f"  \033[1m🎯 Hedef URL   :\033[0m \033[94m{cfg['target_url']}\033[0m")
+    print(f"  \033[1m👥 Hesap/Cookie:\033[0m {has_cookie}")
+    print(f"  \033[1m⚡ Worker Sayısı:\033[0m \033[93m{workers}\033[0m paralel işlem")
+    print(f"  \033[1m📊 Toplam İstek:\033[0m \033[93m{total}\033[0m")
+    print(f"  \033[1m🌐 Proxy Durumu:\033[0m {proxy_str}")
+    print(f"  \033[1m👻 Headless Mod:\033[0m {'Aktif' if cfg['headless'] else 'Görünür Tarayıcı'}")
+    print(f"  \033[1m⏱️  Zaman Aşımı :\033[0m {cfg['request_timeout']}s")
+    print("\033[95m" + "━" * 58 + "\033[0m\n")
 
 
 async def main(cfg: dict) -> None:
+    print("\033[1;96m" + "=" * 58)
+    print("       YAPILANDIRMA VE TEST BAŞLATMA SİHİRBAZI")
+    print("=" * 58 + "\033[0m\n")
+
     ask_target_url(cfg)
+    ask_proxy(cfg)
     ask_workers(cfg)
     total_requests = ask_total_requests(cfg)
     ask_cookies(cfg)

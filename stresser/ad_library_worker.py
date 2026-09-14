@@ -212,21 +212,25 @@ async def run_ad_library_worker(
             start = time.perf_counter()
 
             try:
-                browser = await pw.chromium.launch(
-                    headless=headless,
-                    proxy={
-                        "server": proxy_server,
-                        "username": session_proxy_user,
-                        "password": proxy_password,
-                    },
-                    args=[
+                launch_kwargs = {
+                    "headless": headless,
+                    "args": [
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
                         "--disable-infobars",
                         "--window-size=1280,800",
                     ],
-                )
+                }
+
+                if config.get("use_proxy", True):
+                    launch_kwargs["proxy"] = {
+                        "server": proxy_server,
+                        "username": session_proxy_user,
+                        "password": proxy_password,
+                    }
+
+                browser = await pw.chromium.launch(**launch_kwargs)
 
                 context = await browser.new_context(
                     user_agent=ua,
