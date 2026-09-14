@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml
 
+from ad_library_worker import is_ad_library_url, run_ad_library_worker
 from browser_worker import run_worker
 from reporter import Reporter
 
@@ -164,8 +165,10 @@ async def main(cfg: dict) -> None:
     rem = total_requests % workers
     worker_counts = [base + (1 if i < rem else 0) for i in range(workers)]
 
+    worker_fn = run_ad_library_worker if is_ad_library_url(cfg["target_url"]) else run_worker
+
     tasks = [
-        run_worker(
+        worker_fn(
             worker_id=i + 1,
             config=cfg,
             reporter=reporter,
@@ -177,6 +180,7 @@ async def main(cfg: dict) -> None:
 
     await asyncio.gather(*tasks)
     reporter.print_summary()
+
 
 
 if __name__ == "__main__":
