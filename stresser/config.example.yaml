@@ -32,3 +32,11 @@ oxylabs_country: "TR"
 # Oxylabs rotating residential proxy adresi
 oxylabs_host: "pr.oxylabs.io"
 oxylabs_port: 7777
+
+# ─── Pixel Injector Ayarlari (pixel_injector.py icin) ────────────
+# Pixel'in yuklendigi asil site (Facebook degil, hedef landing page)
+pixel_site_url: "https://your-site.com/"
+
+# Varsayilan event sayisi ve paralel worker sayisi
+pixel_count: 20
+pixel_workers: 5

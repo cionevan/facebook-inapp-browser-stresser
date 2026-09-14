@@ -82,6 +82,10 @@ def load_config(path: str) -> dict[str, Any]:
     cfg["workers"] = int(cfg.get("workers", 3))
     cfg["request_timeout"] = int(cfg.get("request_timeout", 30))
     cfg["headless"] = str(cfg.get("headless", True)).lower() in ("true", "1", "yes")
+    # Pixel injector'a ozel ayarlar (config.yaml'dan okunur, yoksa bos)
+    cfg["pixel_site_url"] = cfg.get("pixel_site_url", "")
+    cfg["pixel_count"] = int(cfg.get("pixel_count", 20))
+    cfg["pixel_workers"] = int(cfg.get("pixel_workers", 5))
     return cfg
 
 
@@ -119,8 +123,8 @@ def _detect_pixel_id(html: str) -> str | None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def ask_target_site(cfg: dict) -> str:
-    default = cfg.get("target_url", "")
-    # Dogrudan site URL'si iste (Facebook degil, hedef site)
+    # Once pixel_site_url'yi dene, yoksa target_url'den al (facebook ise sil)
+    default = cfg.get("pixel_site_url", "") or cfg.get("target_url", "")
     if "facebook.com" in default:
         default = ""
     print("  \033[90m(Facebook URL'si degil, pixel'in yuklendigi asil site girin)\033[0m")
@@ -134,17 +138,18 @@ def ask_target_site(cfg: dict) -> str:
         print("  \033[91m[!]\033[0m Gecerli bir URL girin (http:// veya https:// ile baslamali)")
 
 
-def ask_event(cfg: dict) -> tuple[str, dict[str, Any]]:
+def ask_event() -> tuple[str, dict[str, Any]]:
     print("\n  \033[1mHangi Meta Pixel eventi basilsin?\033[0m")
     for k, v in EVENTS.items():
-        print(f"    \033[93m{k}\033[0m) {v['label']}  \033[90m→ fbq('track', '{v['name']}')\033[0m")
+        star = " \033[93m★\033[0m" if k == "5" else ""
+        print(f"    \033[93m{k}\033[0m) {v['label']}{star}  \033[90m→ fbq('track', '{v['name']}')\033[0m")
     print()
     while True:
         choice = input("  \033[96m[?]\033[0m Event secin [5]: ").strip() or "5"
         if choice in EVENTS:
             ev = EVENTS[choice]
             print(f"  \033[92m[OK]\033[0m Secilen event: \033[1m{ev['name']}\033[0m – {ev['label']}\n")
-            return ev["name"], ev["params"]
+            return ev["name"], dict(ev["params"])
         print("  \033[91m[!]\033[0m Gecersiz secim, 1-7 arasi bir sayi girin.")
 
 
@@ -160,17 +165,19 @@ def ask_proxy(cfg: dict) -> None:
         print(f"  \033[92m[OK]\033[0m Proxy aktif: {host}:{port}\n")
 
 
-def ask_count() -> int:
+def ask_count(cfg: dict) -> int:
+    default = cfg.get("pixel_count", 20)
     while True:
-        val = input("  \033[96m[?]\033[0m Kac adet event basilsin? [20]: ").strip() or "20"
+        val = input(f"  \033[96m[?]\033[0m Kac adet event basilsin? [{default}]: ").strip() or str(default)
         if val.isdigit() and int(val) > 0:
             return int(val)
         print("  \033[91m[!]\033[0m 0'dan buyuk bir tamsayi girin.")
 
 
-def ask_workers() -> int:
+def ask_workers(cfg: dict) -> int:
+    default = cfg.get("pixel_workers", 5)
     while True:
-        val = input("  \033[96m[?]\033[0m Paralel worker sayisi [3]: ").strip() or "3"
+        val = input(f"  \033[96m[?]\033[0m Paralel worker sayisi [{default}]: ").strip() or str(default)
         if val.isdigit() and int(val) > 0:
             return int(val)
         print("  \033[91m[!]\033[0m 0'dan buyuk bir tamsayi girin.")
@@ -386,12 +393,12 @@ async def main(cfg: dict[str, Any]) -> None:
         print("  \033[91m[!]\033[0m Pixel ID bos olamaz. Cikiliyor.")
         return
 
-    event_name, event_params = ask_event(cfg)
+    event_name, event_params = ask_event()
     event_params = ask_value(event_name, event_params)
     ask_proxy(cfg)
 
-    total = ask_count()
-    workers = ask_workers()
+    total = ask_count(cfg)
+    workers = ask_workers(cfg)
 
     # Banner
     proxy_str = (
