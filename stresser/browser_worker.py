@@ -88,22 +88,36 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
         # 1. DOM'daki a[href] etiketlerini kontrol et
         try:
             links = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            # Once icinde fbclid parametresi barindiran gercek reklam linklerini tara
             for lk in links:
                 if not lk:
                     continue
-                # l.facebook.com yönlendirmesi
-                if "l.facebook.com" in lk and "u=" in lk:
-                    u_param = urllib.parse.unquote(lk.split("u=")[1].split("&")[0])
-                    if "facebook.com" not in u_param:
-                        target_link = lk
-                        break
-                # Doğrudan harici web sitesi linki (örn: menoxintr.com vb.)
-                parsed_lk = urllib.parse.urlparse(lk)
-                if parsed_lk.scheme in ("http", "https") and parsed_lk.hostname:
-                    h = parsed_lk.hostname.lower()
-                    if "facebook.com" not in h and "fb.com" not in h and "instagram.com" not in h and "meta.com" not in h and "meta.ai" not in h:
-                        target_link = lk
-                        break
+                if "fbclid=" in lk:
+                    parsed_lk = urllib.parse.urlparse(lk)
+                    if parsed_lk.scheme in ("http", "https") and parsed_lk.hostname:
+                        h = parsed_lk.hostname.lower()
+                        if "facebook.com" not in h and "fb.com" not in h and "instagram.com" not in h and "meta.com" not in h and "meta.ai" not in h:
+                            target_link = lk
+                            break
+
+            # Bulunamazsa standart l.facebook veya harici baglantiyi al
+            if not target_link:
+                for lk in links:
+                    if not lk:
+                        continue
+                    # l.facebook.com yönlendirmesi
+                    if "l.facebook.com" in lk and "u=" in lk:
+                        u_param = urllib.parse.unquote(lk.split("u=")[1].split("&")[0])
+                        if "facebook.com" not in u_param:
+                            target_link = lk
+                            break
+                    # Doğrudan harici web sitesi linki (örn: menoxintr.com vb.)
+                    parsed_lk = urllib.parse.urlparse(lk)
+                    if parsed_lk.scheme in ("http", "https") and parsed_lk.hostname:
+                        h = parsed_lk.hostname.lower()
+                        if "facebook.com" not in h and "fb.com" not in h and "instagram.com" not in h and "meta.com" not in h and "meta.ai" not in h:
+                            target_link = lk
+                            break
         except Exception:
             pass
 
@@ -130,6 +144,7 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
     # Bulunan harici CTA linkine post referer ile git
     if target_link:
         return await _safe_goto(page, target_link, timeout_ms, referer=post_url)
+
 
 
 async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None):
