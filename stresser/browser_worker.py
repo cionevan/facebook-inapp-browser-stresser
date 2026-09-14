@@ -55,15 +55,17 @@ def _is_facebook_post_url(url: str) -> bool:
     """Verilen adresin bir Facebook post/video/reel sayfasi olup olmadigini belirler."""
     if "l.facebook.com" in url or "facebook.com/flx/" in url:
         return False
+    if not ("facebook.com" in url or "fb.watch" in url):
+        return False
     indicators = [
-        "facebook.com/reel/",
-        "facebook.com/watch/",
-        "facebook.com/posts/",
-        "facebook.com/videos/",
-        "facebook.com/story.php",
-        "facebook.com/permalink.php",
-        "facebook.com/photo",
-        "facebook.com/share/",
+        "/reel/",
+        "/watch/",
+        "/posts/",
+        "/videos/",
+        "story.php",
+        "permalink.php",
+        "/photo",
+        "/share/",
         "fb.watch/",
     ]
     return any(ind in url for ind in indicators)
@@ -71,68 +73,54 @@ def _is_facebook_post_url(url: str) -> bool:
 
 async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
     """
-    Facebook gonderisindeki her turlu CTA butonunu veya baglantisini bulur ve tiklar.
+    Facebook gonderisindeki her turlu CTA butonunu veya harici baglantiyi bekler, bulur ve tiklar.
     """
-    # 1. Yontem: Relay / GraphQL cache icindeki action_link'leri yakala (en hizli ve guvenilir)
-    try:
-        content = await page.content()
-        # Tum action_link / url pattern'lerini topla
-        matches = re.findall(r'"url":"(https:\\/\\/l\.facebook\.com\\/l\.php[^"]+)"', content)
-        if matches:
-            # Genellikle ilk veya ikinci link postun asil hedefidir
-            cta_raw = matches[0].replace("\\/", "/").encode("utf-8").decode("unicode_escape")
-            return await page.goto(
-                cta_raw,
-                wait_until="domcontentloaded",
-                timeout=timeout_ms,
-                referer=post_url,
-            )
-    except Exception:
-        pass
+    target_link = None
 
-    # 2. Yontem: DOM uzerindeki CTA butonlarina tikla (Daha Fazla Bilgi Al, Simdi Alisveris Yap vb.)
-    cta_selectors = [
-        "text=/Daha Fazla Bilgi/i",
-        "text=/Learn More/i",
-        "text=/Şimdi Alışveriş Yap/i",
-        "text=/Shop Now/i",
-        "text=/Cump/i",
-        "text=/Kaydol/i",
-        "text=/Sign Up/i",
-        "text=/Bize Ulaşın/i",
-        "text=/Contact Us/i",
-        "text=/Başvur/i",
-        "text=/Apply Now/i",
-        "text=/İndir/i",
-        "text=/Download/i",
-        "text=/Teklif Al/i",
-        "text=/Sipariş/i",
-        "a[href*='l.facebook.com']",
-    ]
+    # Facebook SPA yapisinda butonlarin render edilmesi icin kisa araliklarla tara
+    for _ in range(8):
+        await asyncio.sleep(0.6)
 
-    for sel in cta_selectors:
+        # 1. DOM'daki a[href] etiketlerini kontrol et
         try:
-            el = page.locator(sel).first
-            if await el.is_visible(timeout=1000):
-                # Buton link iceriyorsa href'e git, degilse tikla
-                href = await el.get_attribute("href")
-                if href and ("l.facebook.com" in href or not href.startswith("/")):
-                    return await page.goto(href, wait_until="domcontentloaded", timeout=timeout_ms, referer=post_url)
-                else:
-                    async with page.expect_navigation(wait_until="domcontentloaded", timeout=timeout_ms):
-                        await el.click()
-                    return None
+            links = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            for lk in links:
+                if "l.facebook.com" in lk and "u=" in lk:
+                    u_param = urllib.parse.unquote(lk.split("u=")[1].split("&")[0])
+                    if "facebook.com" not in u_param:
+                        target_link = lk
+                        break
         except Exception:
-            continue
+            pass
 
-    # 3. Yontem: Sayfadaki harici tum linkleri tara
-    try:
-        links = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
-        for lk in links:
-            if "l.facebook.com" in lk:
-                return await page.goto(lk, wait_until="domcontentloaded", timeout=timeout_ms, referer=post_url)
-    except Exception:
-        pass
+        if target_link:
+            break
+
+        # 2. Sayfa icerigindeki relay/graphql json verisini kontrol et
+        try:
+            content = await page.content()
+            matches = re.findall(r'"url":"(https:\\/\\/l\.facebook\.com\\/l\.php[^"]+)"', content)
+            for m in matches:
+                cta_raw = m.replace("\\/", "/").encode("utf-8").decode("unicode_escape")
+                if "u=" in cta_raw:
+                    target_dest = urllib.parse.unquote(cta_raw.split("u=")[1].split("&")[0])
+                    if "facebook.com" not in target_dest:
+                        target_link = cta_raw
+                        break
+        except Exception:
+            pass
+
+        if target_link:
+            break
+
+    # Bulunan harici CTA linkine post referer ile git
+    if target_link:
+        return await page.goto(
+            target_link,
+            wait_until="domcontentloaded",
+            timeout=timeout_ms,
+            referer=post_url,
+        )
 
     return None
 
