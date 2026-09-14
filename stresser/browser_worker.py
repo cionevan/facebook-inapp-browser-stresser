@@ -37,53 +37,6 @@ from user_agents import random_user_agent
 stealth = Stealth()
 
 
-def generate_dynamic_fbclid() -> str:
-    """Gercekci, dinamik ve her seferinde benzersiz bir Meta AEM fbclid uretir."""
-    chars = string.ascii_letters + string.digits + "-_"
-    prefix = "IwdGRjcAUU"
-    part1 = "".join(random.choices(chars, k=54))
-    fixed_app = "AjExAHNydGMGYXBwX2lkCjY2Mjg1NjgzNzkAAR"
-    part2 = "".join(random.choices(chars, k=42))
-    aem = "".join(random.choices(chars, k=22))
-    return f"{prefix}{part1}{fixed_app}{part2}_aem_{aem}"
-
-
-def attach_dynamic_fbclid(target_url: str) -> str:
-    """
-    Hedef URL veya l.facebook.com baglantisina dinamik ve benzersiz bir fbclid ekler.
-    Eger zaten varsa, yenisiyle gunceller.
-    """
-    try:
-        parsed = urllib.parse.urlparse(target_url)
-        new_fbclid = generate_dynamic_fbclid()
-
-        # Eger bu bir l.facebook.com linki ise, u parametresinin icine ekle
-        if "l.facebook.com" in parsed.netloc and "l.php" in parsed.path:
-            qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-            if "u" in qs and qs["u"]:
-                inner_url = qs["u"][0]
-                inner_parsed = urllib.parse.urlparse(inner_url)
-                inner_qs = urllib.parse.parse_qs(inner_parsed.query, keep_blank_values=True)
-                inner_qs["fbclid"] = [new_fbclid]
-                new_inner_query = urllib.parse.urlencode(inner_qs, doseq=True)
-                new_inner_url = urllib.parse.urlunparse(inner_parsed._replace(query=new_inner_query))
-                qs["u"] = [new_inner_url]
-                new_query = urllib.parse.urlencode(qs, doseq=True)
-                return urllib.parse.urlunparse(parsed._replace(query=new_query))
-
-        # Eger normal bir websitesi ise, dogrudan fbclid ekle
-        elif not any(k in parsed.netloc for k in ["facebook.com", "fb.watch"]):
-            qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-            qs["fbclid"] = [new_fbclid]
-            new_query = urllib.parse.urlencode(qs, doseq=True)
-            return urllib.parse.urlunparse(parsed._replace(query=new_query))
-
-    except Exception:
-        pass
-
-    return target_url
-
-
 def _ua_short(ua: str) -> str:
     """'FB/Android' veya 'FB/iOS' ve versiyon etiketini cikarir."""
     if "FBIOS" in ua:
@@ -128,8 +81,6 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
         if matches:
             # Genellikle ilk veya ikinci link postun asil hedefidir
             cta_raw = matches[0].replace("\\/", "/").encode("utf-8").decode("unicode_escape")
-            # Dinamik ve taze Meta fbclid parametresini linke tak
-            cta_raw = attach_dynamic_fbclid(cta_raw)
             return await page.goto(
                 cta_raw,
                 wait_until="domcontentloaded",
@@ -278,9 +229,8 @@ async def run_worker(
 
                 # ─── DURUM 2: DOGRUDAN BAGLANTI ──────────────────────────────
                 else:
-                    direct_url = attach_dynamic_fbclid(target_url)
                     response = await page.goto(
-                        direct_url,
+                        target_url,
                         wait_until="domcontentloaded",
                         timeout=timeout_ms,
                     )
