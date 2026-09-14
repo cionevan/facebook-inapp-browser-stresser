@@ -263,6 +263,36 @@ async def run_ad_library_worker(
                 page = await context.new_page()
                 await stealth.apply_stealth_async(page)
 
+                # ─── AKILLI KOTA KORUMASI ───
+                video_chunks_allowed = 0
+
+                async def _smart_media_limiter(route):
+                    nonlocal video_chunks_allowed
+                    req = route.request
+                    r_type = req.resource_type
+                    url_lower = req.url.lower()
+
+                    if r_type == "font" or any(ext in url_lower for ext in (".woff", ".woff2", ".ttf", ".otf", ".wav", ".mp3")):
+                        await route.abort()
+                        return
+
+                    is_video = (
+                        r_type == "media"
+                        or any(ext in url_lower for ext in (".mp4", ".m4v", ".webm", ".m3u8", ".ts"))
+                        or ("video" in url_lower and "fbcdn.net" in url_lower)
+                    )
+                    if is_video:
+                        if video_chunks_allowed < 1:
+                            video_chunks_allowed += 1
+                            await route.continue_()
+                            return
+                        await route.abort()
+                        return
+
+                    await route.continue_()
+
+                await page.route("**/*", _smart_media_limiter)
+
                 # 1. Ad Library sayfasına git
                 try:
                     await page.goto(target_url, wait_until="load", timeout=timeout_ms)

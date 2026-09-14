@@ -332,6 +332,44 @@ async def run_worker(
                 page = await context.new_page()
                 await stealth.apply_stealth_async(page)
 
+                # ─── AKILLI KOTA KORUMASI (SMART VIDEO & MEDIA BUFFERING) ───
+                # Meta'nın video gösterim telemetrisi için videonun ilk küçük parçasına izin verilir,
+                # fakat videonun tamamını ve arkadaki diğer videoları indirmesi engellenerek kota %85+ korunur.
+                video_chunks_allowed = 0
+
+                async def _smart_media_limiter(route):
+                    nonlocal video_chunks_allowed
+                    req = route.request
+                    r_type = req.resource_type
+                    url_lower = req.url.lower()
+
+                    # Ağır font ve ses dosyalarını engelle
+                    if r_type == "font" or any(ext in url_lower for ext in (".woff", ".woff2", ".ttf", ".otf", ".wav", ".mp3")):
+                        await route.abort()
+                        return
+
+                    # Video akış kontrolü
+                    is_video = (
+                        r_type == "media"
+                        or any(ext in url_lower for ext in (".mp4", ".m4v", ".webm", ".m3u8", ".ts"))
+                        or ("video" in url_lower and "fbcdn.net" in url_lower)
+                    )
+
+                    if is_video:
+                        # İlk 1 parçaya izin ver (oynatıcının başlaması ve gösterim telemetrisi için)
+                        if video_chunks_allowed < 1:
+                            video_chunks_allowed += 1
+                            await route.continue_()
+                            return
+                        else:
+                            # Geri kalan devasa video indirmelerini ve preload'ları kes
+                            await route.abort()
+                            return
+
+                    await route.continue_()
+
+                await page.route("**/*", _smart_media_limiter)
+
                 # ─── DURUM 1: FACEBOOK GÖNDERİSİ / REEL / VİDEO İZLENİMİ ─────
                 if is_fb_post:
                     # Gönderiye git (sayfanın ve video/reklam alanının yüklenmesi)
