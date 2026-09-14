@@ -47,8 +47,12 @@ def _ua_short(ua: str) -> str:
         m = re.search(r"FBAV/([\d\.]+)", ua)
         ver = m.group(1)[:5] if m else "Andr"
         return f"FB/Andr ({ver})"
+    elif "Windows" in ua or "Macintosh" in ua:
+        m = re.search(r"Chrome/([\d]+)", ua)
+        return f"PC/Chr ({m.group(1)})" if m else "PC/Desk"
     m = re.search(r"Chrome/([\d]+)", ua)
     return f"Chrome/{m.group(1)}" if m else "Mobile/?"
+
 
 
 def _is_facebook_post_url(url: str) -> bool:
@@ -85,9 +89,19 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
         try:
             links = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
             for lk in links:
+                if not lk:
+                    continue
+                # l.facebook.com yönlendirmesi
                 if "l.facebook.com" in lk and "u=" in lk:
                     u_param = urllib.parse.unquote(lk.split("u=")[1].split("&")[0])
                     if "facebook.com" not in u_param:
+                        target_link = lk
+                        break
+                # Doğrudan harici web sitesi linki (örn: menoxintr.com vb.)
+                parsed_lk = urllib.parse.urlparse(lk)
+                if parsed_lk.scheme in ("http", "https") and parsed_lk.hostname:
+                    h = parsed_lk.hostname.lower()
+                    if "facebook.com" not in h and "fb.com" not in h and "instagram.com" not in h and "meta.com" not in h and "meta.ai" not in h:
                         target_link = lk
                         break
         except Exception:
@@ -116,6 +130,7 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
     # Bulunan harici CTA linkine post referer ile git
     if target_link:
         return await _safe_goto(page, target_link, timeout_ms, referer=post_url)
+
 
 async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None):
     """ERR_ABORTED ve ani redirect durumlarinda dayanikli sayfa yukleme."""
@@ -166,7 +181,9 @@ async def run_worker(
 
     async with async_playwright() as pw:
         for _ in range(n_requests):
-            ua = random_user_agent()
+            cookies_data = config.get("cookies_data")
+            is_desktop_cookie = bool(cookies_data)
+            ua = random_user_agent(mode="desktop" if is_desktop_cookie else "mobile")
             sess_id = uuid.uuid4().hex[:8]
             session_proxy_user = f"{proxy_username}-sessid-{sess_id}"
             start = time.perf_counter()
@@ -184,37 +201,60 @@ async def run_worker(
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
                         "--disable-infobars",
-                        "--window-size=393,852",
+                        "--window-size=1280,800" if is_desktop_cookie else "--window-size=393,852",
                     ],
                 )
 
-                # Mobil ortam basliklari
-                is_ios = "iPhone" in ua
-                headers = {
-                    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1",
-                }
-                if not is_ios:
-                    headers["X-Requested-With"] = "com.facebook.katana"
-                    headers["Sec-CH-UA-Mobile"] = "?1"
-                    headers["Sec-CH-UA-Platform"] = '"Android"'
+                if is_desktop_cookie:
+                    headers = {
+                        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-User": "?1",
+                        "Upgrade-Insecure-Requests": "1",
+                    }
+                    context = await browser.new_context(
+                        user_agent=ua,
+                        viewport={"width": 1280, "height": 800},
+                        device_scale_factor=1,
+                        is_mobile=False,
+                        has_touch=False,
+                        locale="tr-TR",
+                        timezone_id="Europe/Istanbul",
+                        java_script_enabled=True,
+                        extra_http_headers=headers,
+                    )
+                else:
+                    # Mobil Facebook In-App Browser ortami
+                    is_ios = "iPhone" in ua
+                    headers = {
+                        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-User": "?1",
+                        "Upgrade-Insecure-Requests": "1",
+                    }
+                    if not is_ios:
+                        headers["X-Requested-With"] = "com.facebook.katana"
+                        headers["Sec-CH-UA-Mobile"] = "?1"
+                        headers["Sec-CH-UA-Platform"] = '"Android"'
 
-                context = await browser.new_context(
-                    user_agent=ua,
-                    viewport={"width": 393, "height": 852},
-                    device_scale_factor=3,
-                    is_mobile=True,
-                    has_touch=True,
-                    locale="tr-TR",
-                    timezone_id="Europe/Istanbul",
-                    java_script_enabled=True,
-                    extra_http_headers=headers,
-                )
+                    context = await browser.new_context(
+                        user_agent=ua,
+                        viewport={"width": 393, "height": 852},
+                        device_scale_factor=3,
+                        is_mobile=True,
+                        has_touch=True,
+                        locale="tr-TR",
+                        timezone_id="Europe/Istanbul",
+                        java_script_enabled=True,
+                        extra_http_headers=headers,
+                    )
+
 
                 # Kullanici ozel Cookie JSON'i vermisse context'e yukle
                 cookies_data = config.get("cookies_data")

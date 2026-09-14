@@ -42,7 +42,19 @@ USER_AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/20G81 [FBAN/FBIOS;FBDV/iPhone11,8;FBMD/iPhone;FBSN/iOS;FBSV/16.6.1;FBSS/2;FBID/phone;FBLC/tr_TR;FBOP/5]",
 ]
 
+# Masaustu (Desktop Web) User Agent havuzu (Cookie kullanilan oturumlarda uyumluluk icin)
+DESKTOP_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+]
 
-def random_user_agent() -> str:
-    """Havuzdan rastgele bir mobil Facebook App user-agent dondurur."""
+
+def random_user_agent(mode: str = "mobile") -> str:
+    """Moda gore ('mobile' veya 'desktop') havuzdan rastgele bir UA dondurur."""
+    if mode == "desktop":
+        return random.choice(DESKTOP_USER_AGENTS)
     return random.choice(USER_AGENTS)
+
