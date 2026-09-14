@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────
+#  Stress Tester – Yapılandırma Şablonu (Örnek)
+#  Kendi ayarlarınız için bu dosyayı 'config.yaml' olarak kopyalayın.
+# ─────────────────────────────────────────────────────────────────
+
+# Hedef URL (Başlangıçta terminalde interaktif olarak da sorulur)
+target_url: "http://localhost"
+
+# Eş zamanlı çalışacak tarayıcı sayısı (varsayılan: 5)
+workers: 5
+
+# Her worker başına varsayılan istek sayısı (toplam = workers × requests_per_worker)
+requests_per_worker: 20
+
+# Sayfa yükleme zaman aşımı (saniye)
+request_timeout: 30
+
+# Tarayıcı görünür mü? (true = arka planda headless, false = ekranda pencereler açılır)
+headless: true
+
+# ─── Oxylabs Residential Proxy ──────────────────────────────────
+# Oxylabs panelinizden aldığınız kimlik bilgileri:
+oxylabs_username: "your_username_here"
+oxylabs_password: "your_password_here"
+
+# Ülke kodu (Örn: "TR", "US", "DE" vb. Boş bırakılırsa küresel havuz kullanılır)
+oxylabs_country: "TR"
+
+# Oxylabs rotating residential proxy adresi
+oxylabs_host: "pr.oxylabs.io"
+oxylabs_port: 7777
