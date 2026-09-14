@@ -2,10 +2,9 @@
 reporter.py – Canlı istatistik takibi ve özet çıktısı.
 """
 
-import time
 import threading
-from dataclasses import dataclass, field
-from typing import List
+import time
+from dataclasses import dataclass
 
 
 @dataclass
@@ -22,7 +21,7 @@ class RequestResult:
 class Reporter:
     def __init__(self, total_expected: int, log_file: str = "stresser.log"):
         self._lock = threading.Lock()
-        self._results: List[RequestResult] = []
+        self._results: list[RequestResult] = []
         self._total_expected = total_expected
         self._start_time = time.time()
         self._log_file = log_file

@@ -10,21 +10,20 @@ config.yaml dosyasını düzenleyerek ayarları değiştirin.
 
 import argparse
 import asyncio
-import sys
+import json
+import os
 from pathlib import Path
+from typing import Any
 
 import yaml
-
 from ad_library_worker import is_ad_library_url, run_ad_library_worker
 from browser_worker import run_worker
 from reporter import Reporter
 
 
-import os
-
-def load_config(path: str) -> dict:
+def load_config(path: str) -> dict[str, Any]:
     config_path = Path(path)
-    cfg = {}
+    cfg: dict[str, Any] = {}
 
     if config_path.exists():
         with open(config_path, encoding="utf-8") as f:
@@ -77,7 +76,7 @@ def ask_target_url(cfg: dict) -> None:
         url = input(prompt).strip()
         if not url and default:
             url = default
-        if url.startswith("http://") or url.startswith("https://"):
+        if url.startswith(("http://", "https://")):
             cfg["target_url"] = url
             break
         print("  \033[91m[!]\033[0m Geçerli bir URL girin (http:// veya https:// ile başlamalı)")
@@ -98,11 +97,9 @@ def ask_total_requests(cfg: dict) -> int:
             break
         print("  [!] Lütfen 0'dan büyük geçerli bir tamsayı girin")
 
-    cfg["total_requests"] = total
-    return total
+    cfg["total_requests"] = int(total)
+    return int(total)
 
-
-import json
 
 def ask_workers(cfg: dict) -> int:
     """Eşzamanlı çalışacak worker sayısını sor."""
@@ -117,8 +114,8 @@ def ask_workers(cfg: dict) -> int:
             workers = int(val)
             break
         print("  [!] Lütfen 0'dan büyük geçerli bir tamsayı girin")
-    cfg["workers"] = workers
-    return workers
+    cfg["workers"] = int(workers)
+    return int(workers)
 
 
 def ask_cookies(cfg: dict) -> None:

@@ -7,7 +7,7 @@ Evrensel Facebook Post & CTA Motoru:
       * Standart Gonderiler (/posts/..., /permalink.php, /story.php, photo.php vb.)
       * Videolar (/watch/..., /videos/...)
       * Dogrudan Linkler (l.facebook.com, normal website linkleri)
-  
+
   - Desteklenen CTA (Eyleme Cagri) Butonlari:
       * Daha Fazla Bilgi Al (LEARN_MORE)
       * Simdi Alisveris Yap / Cumpara (SHOP_NOW)
@@ -20,17 +20,15 @@ Evrensel Facebook Post & CTA Motoru:
 """
 
 import asyncio
-import random
 import re
-import string
 import time
 import urllib.parse
 import uuid
 from typing import Any
 
-from playwright.async_api import async_playwright, Error as PlaywrightError
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
-
 from reporter import Reporter, RequestResult
 from user_agents import random_user_agent
 
@@ -201,7 +199,7 @@ def _format_proxy_auth(config: dict[str, Any], session_id: str) -> tuple[str, st
     return proxy_server, session_user, pwd
 
 
-def _pick_cookies_for_request(cookies_data: Any, request_index: int) -> list[dict] | None:
+def _pick_cookies_for_request(cookies_data: Any, request_index: int) -> list[dict[str, Any]] | None:
     """
     Cookie verisi tek bir liste ise onu döner.
     Birden fazla hesap listesi içeren bir havuz ise (list of lists),
@@ -218,7 +216,8 @@ def _pick_cookies_for_request(cookies_data: Any, request_index: int) -> list[dic
             # Tekil hesap cookie listesi
             return cookies_data
     elif isinstance(cookies_data, dict):
-        return cookies_data.get("cookies", [])
+        res = cookies_data.get("cookies", [])
+        return res if isinstance(res, list) else None
     return None
 
 
@@ -249,25 +248,27 @@ async def run_worker(
             start = time.perf_counter()
 
             try:
-                launch_kwargs = {
-                    "headless": headless,
-                    "args": [
+                proxy_settings = (
+                    {
+                        "server": proxy_server,
+                        "username": session_proxy_user,
+                        "password": proxy_password,
+                    }
+                    if config.get("use_proxy", True)
+                    else None
+                )
+
+                browser = await pw.chromium.launch(
+                    headless=headless,
+                    proxy=proxy_settings,  # type: ignore[arg-type]
+                    args=[
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
                         "--disable-infobars",
                         "--window-size=1280,800" if is_desktop_cookie else "--window-size=393,852",
                     ],
-                }
-
-                if config.get("use_proxy", True):
-                    launch_kwargs["proxy"] = {
-                        "server": proxy_server,
-                        "username": session_proxy_user,
-                        "password": proxy_password,
-                    }
-
-                browser = await pw.chromium.launch(**launch_kwargs)
+                )
 
                 if is_desktop_cookie:
                     context = await browser.new_context(
@@ -305,7 +306,7 @@ async def run_worker(
 
                         for c in current_cookies:
                             if isinstance(c, dict) and "name" in c and "value" in c:
-                                ck = {
+                                ck: dict[str, Any] = {
                                     "name": str(c["name"]),
                                     "value": str(c["value"]),
                                     "path": str(c.get("path", "/")),
@@ -316,7 +317,7 @@ async def run_worker(
                                 elif not c.get("url"):
                                     ck["domain"] = default_domain
 
-                                if "url" in c and c["url"]:
+                                if c.get("url"):
                                     ck["url"] = str(c["url"])
 
                                 if c.get("sameSite") in ("Strict", "Lax", "None"):
@@ -329,7 +330,7 @@ async def run_worker(
                                 valid_cookies.append(ck)
 
                         if valid_cookies:
-                            await context.add_cookies(valid_cookies)
+                            await context.add_cookies(valid_cookies)  # type: ignore[arg-type]
                     except Exception:
                         pass
 
