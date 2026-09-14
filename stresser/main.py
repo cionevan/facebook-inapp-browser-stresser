@@ -95,14 +95,52 @@ def ask_total_requests(cfg: dict) -> int:
     return total
 
 
+import json
+
+def ask_cookies(cfg: dict) -> None:
+    """Kullanıcıya özel Cookie / Session JSON kullanmak isteyip istemediğini sor."""
+    prompt = "  Cookie JSON kullanılsın mı? (e/H): "
+    choice = input(prompt).strip().lower()
+    if choice in ("e", "evet", "y", "yes"):
+        while True:
+            file_or_json = input("  Cookie JSON dosya yolu veya içeriği [cookies.json]: ").strip()
+            if not file_or_json:
+                file_or_json = "cookies.json"
+
+            # Dosya yolu kontrolü
+            path = Path(file_or_json)
+            if path.exists() and path.is_file():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    cfg["cookies_data"] = data
+                    print(f"  [OK] Cookie dosyası yüklendi: {path.name}")
+                    break
+                except Exception as e:
+                    print(f"  [!] JSON dosyası okunamadı: {e}")
+            else:
+                # Doğrudan girilen JSON string kontrolü
+                try:
+                    data = json.loads(file_or_json)
+                    cfg["cookies_data"] = data
+                    print("  [OK] Cookie JSON içeriği başarıyla yüklendi.")
+                    break
+                except Exception:
+                    print(f"  [!] Geçerli bir dosya bulunamadı veya JSON sözdizimi hatalı: '{file_or_json}'")
+    else:
+        cfg["cookies_data"] = None
+
+
 def print_banner(cfg: dict) -> None:
     workers = cfg.get("workers", 5)
     total = cfg.get("total_requests", workers * cfg.get("requests_per_worker", 20))
+    has_cookie = "Evet" if cfg.get("cookies_data") else "Hayır"
     sep = "─" * 50
     print(sep)
     print("  [>>]  Browser Stress Tester")
     print(sep)
     print(f"  Hedef      : {cfg['target_url']}")
+    print(f"  Cookie     : {has_cookie}")
     print(f"  Worker     : {workers}")
     print(f"  Toplam     : {total}")
     print(f"  Proxy      : {cfg['oxylabs_host']}:{cfg['oxylabs_port']}")
@@ -114,6 +152,7 @@ def print_banner(cfg: dict) -> None:
 
 async def main(cfg: dict) -> None:
     ask_target_url(cfg)
+    ask_cookies(cfg)
     total_requests = ask_total_requests(cfg)
     print_banner(cfg)
 

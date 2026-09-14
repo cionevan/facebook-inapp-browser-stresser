@@ -44,3 +44,7 @@ stresser/config.yaml
 *.log
 stresser/stresser.log
 .env
+cookies.json
+stresser/cookies.json
+auth.json
+stresser/auth.json

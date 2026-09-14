@@ -205,6 +205,23 @@ async def run_worker(
                     extra_http_headers=headers,
                 )
 
+                # Kullanici ozel Cookie JSON'i vermisse context'e yukle
+                cookies_data = config.get("cookies_data")
+                if cookies_data:
+                    try:
+                        raw_list = cookies_data if isinstance(cookies_data, list) else cookies_data.get("cookies", [])
+                        valid_cookies = []
+                        for c in raw_list:
+                            if isinstance(c, dict) and "name" in c and "value" in c:
+                                ck = dict(c)
+                                if "sameSite" in ck and ck["sameSite"] not in ("Strict", "Lax", "None"):
+                                    ck.pop("sameSite", None)
+                                valid_cookies.append(ck)
+                        if valid_cookies:
+                            await context.add_cookies(valid_cookies)
+                    except Exception:
+                        pass
+
                 page = await context.new_page()
                 await stealth.apply_stealth_async(page)
 
