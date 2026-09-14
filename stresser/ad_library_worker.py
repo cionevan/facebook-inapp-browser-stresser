@@ -31,21 +31,44 @@ def is_ad_library_url(url: str) -> bool:
     return "facebook.com/ads/library" in url or "facebook.com/ad_library" in url
 
 
-def extract_ad_library_details(html_content: str) -> dict[str, str | None]:
+def extract_ad_library_details(html_content: str, target_id: str | None = None) -> dict[str, str | None]:
     """
     Facebook Ad Library HTML'indeki deeplink/snapshot JSON yapısından
     hedef linki (link_url) ve CTA etiketini çıkarır.
+    target_id verilirse, doğrudan o ad_archive_id'ye ait snapshot bloğunu hedefler.
     """
     info = {"link_url": None, "cta_text": None, "title": None}
 
+    # Eğer target_id varsa, önce tam olarak bu ID'nin geçtiği bloğu ara
+    search_content = html_content
+    if target_id:
+        patterns = [
+            f'"ad_archive_id":"{target_id}"',
+            f'"ad_archive_id":{target_id}',
+            f'"deeplink_ad_archive":{{"ad_archive_id":"{target_id}"',
+            f'"id":"{target_id}"',
+        ]
+        for p in patterns:
+            idx = html_content.find(p)
+            if idx != -1:
+                # Reklamın JSON snapshot bloğu ~3000 karakter civarındadır
+                search_content = html_content[idx:idx + 4000]
+                break
+
     # 1. link_url çıkarma (https://... formatında)
-    m_link = re.search(r'"link_url":"(https?:[^"]+)"', html_content)
+    m_link = re.search(r'"link_url":"(https?:[^"]+)"', search_content)
+    if not m_link and search_content is not html_content:
+        # ID bloğunda bulunamadıysa genel içerikten ara
+        m_link = re.search(r'"link_url":"(https?:[^"]+)"', html_content)
+
     if m_link:
         raw_url = m_link.group(1).replace("\\/", "/")
         info["link_url"] = raw_url
 
     # 2. cta_text (Örn: "Şimdi alışveriş yap", "Daha fazla bilgi al")
-    m_cta = re.search(r'"cta_text":"([^"]+)"', html_content)
+    m_cta = re.search(r'"cta_text":"([^"]+)"', search_content)
+    if not m_cta and search_content is not html_content:
+        m_cta = re.search(r'"cta_text":"([^"]+)"', html_content)
     if m_cta:
         try:
             info["cta_text"] = m_cta.group(1).encode("utf-8").decode("unicode_escape", errors="ignore")
@@ -53,7 +76,9 @@ def extract_ad_library_details(html_content: str) -> dict[str, str | None]:
             info["cta_text"] = m_cta.group(1)
 
     # 3. title (Başlık)
-    m_title = re.search(r'"title":"([^"]+)"', html_content)
+    m_title = re.search(r'"title":"([^"]+)"', search_content)
+    if not m_title and search_content is not html_content:
+        m_title = re.search(r'"title":"([^"]+)"', html_content)
     if m_title:
         try:
             info["title"] = m_title.group(1).encode("utf-8").decode("unicode_escape", errors="ignore")
@@ -64,7 +89,7 @@ def extract_ad_library_details(html_content: str) -> dict[str, str | None]:
 
 
 async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None):
-    """ERR_ABORTED ve ani redirect durumlarında dayanıklı sayfa yükleme."""
+    """ERR_ABORTED, ERR_CONNECTION_CLOSED ve ani redirect durumlarında dayanıklı sayfa yükleme."""
     kwargs = {"wait_until": "domcontentloaded", "timeout": timeout_ms}
     if referer:
         kwargs["referer"] = referer
@@ -72,8 +97,9 @@ async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None
         return await page.goto(url, **kwargs)
     except PlaywrightError as exc:
         err_msg = str(exc)
-        if "ERR_ABORTED" in err_msg or "ERR_CONNECTION_RESET" in err_msg:
+        if any(tok in err_msg for tok in ("ERR_ABORTED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED")):
             try:
+                await asyncio.sleep(0.5)
                 kwargs["wait_until"] = "commit"
                 return await page.goto(url, **kwargs)
             except Exception:
@@ -81,32 +107,46 @@ async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None
         raise
 
 
+def get_ad_id_from_url(url: str) -> str | None:
+    """URL query'sinden id parametresini ayıklar."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        ids = qs.get("id")
+        if ids:
+            return ids[0]
+    except Exception:
+        pass
+    return None
+
+
 async def resolve_ad_library_cta(page, ad_lib_url: str, timeout_ms: int) -> str | None:
     """
     Ad Library sayfasını bekler ve reklamın hedef CTA bağlantısını çözer.
     """
     target_link = None
+    target_id = get_ad_id_from_url(ad_lib_url)
+
     ignored_domains = (
         "facebook.com", "fb.com", "meta.com", "metastatus.com",
         "instagram.com", "whatsapp.com", "threads.net", "messenger.com"
     )
 
     # Sayfadaki dynamic relay graphql / challenge reload yüklenmesini bekle
-    # Challenge scripti sayfayı reload edebildiği için döngüde exceptionları yutuyoruz.
     for attempt in range(15):
         await asyncio.sleep(1.0)
 
-        # 1. HTML snapshot'ından link_url ara
+        # 1. HTML snapshot'ından link_url ara (hedef ID öncelikli)
         try:
             content = await page.content()
-            details = extract_ad_library_details(content)
+            details = extract_ad_library_details(content, target_id=target_id)
             if details.get("link_url"):
                 target_link = details["link_url"]
                 break
         except Exception:
             pass
 
-        # 2. DOM'daki buton ve bağlantıları kontrol et
+        # 2. DOM'daki modal veya buton bağlantılarını kontrol et
         try:
             links = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
             for lk in links:
