@@ -166,6 +166,39 @@ async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None
         raise
 
 
+def _format_proxy_auth(config: dict[str, Any], session_id: str) -> tuple[str, str, str]:
+    """
+    Hem Oxylabs hem de Smartproxy veya standart rotating proxy'ler için
+    doğru proxy_server, session_username ve password bilgisini döner.
+    """
+    host = config.get("oxylabs_host", "")
+    port = config.get("oxylabs_port", 7777)
+    raw_user = config.get("oxylabs_username", "")
+    pwd = config.get("oxylabs_password", "")
+    country = config.get("oxylabs_country", "").strip()
+
+    proxy_server = f"http://{host}:{port}"
+
+    # Smartproxy algılama (host 'smartproxy' içeriyorsa veya user 'smart-' ile başlıyorsa)
+    if "smartproxy" in host.lower() or raw_user.startswith("smart-"):
+        # Kullanıcı adında zaten _area- varsa koru, yoksa country ekle
+        user_base = raw_user
+        if country and "_area-" not in user_base and "-country-" not in user_base:
+            user_base = f"{user_base}_area-{country.upper()}"
+        # Smartproxy session formatı: _session-XXXX
+        session_user = f"{user_base}_session-{session_id}"
+        return proxy_server, session_user, pwd
+
+    # Oxylabs formatı
+    c_lower = country.lower()
+    if c_lower:
+        base_user = f"customer-{raw_user}-cc-{c_lower}"
+    else:
+        base_user = f"customer-{raw_user}"
+    session_user = f"{base_user}-sessid-{session_id}"
+    return proxy_server, session_user, pwd
+
+
 async def run_worker(
     worker_id: int,
     config: dict[str, Any],
@@ -180,18 +213,6 @@ async def run_worker(
     n_requests: int = num_requests if num_requests is not None else config["requests_per_worker"]
     timeout_ms: int = config["request_timeout"] * 1000
     headless: bool = config["headless"]
-
-    proxy_server = f"http://{config['oxylabs_host']}:{config['oxylabs_port']}"
-    proxy_password = config["oxylabs_password"]
-
-    # Ulke kodu varsa Oxylabs formatina cevir: customer-{user}-cc-{country}
-    raw_user = config["oxylabs_username"]
-    country = config.get("oxylabs_country", "").strip().lower()
-    if country:
-        proxy_username = f"customer-{raw_user}-cc-{country}"
-    else:
-        proxy_username = f"customer-{raw_user}"
-
     is_fb_post = _is_facebook_post_url(target_url)
 
     async with async_playwright() as pw:
@@ -200,7 +221,7 @@ async def run_worker(
             is_desktop_cookie = bool(cookies_data)
             ua = random_user_agent(mode="desktop" if is_desktop_cookie else "mobile")
             sess_id = uuid.uuid4().hex[:8]
-            session_proxy_user = f"{proxy_username}-sessid-{sess_id}"
+            proxy_server, session_proxy_user, proxy_password = _format_proxy_auth(config, sess_id)
             start = time.perf_counter()
 
             try:

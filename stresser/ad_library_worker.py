@@ -186,20 +186,28 @@ async def run_ad_library_worker(
     timeout_ms: int = config["request_timeout"] * 1000
     headless: bool = config["headless"]
 
-    proxy_server = f"http://{config['oxylabs_host']}:{config['oxylabs_port']}"
-    proxy_password = config["oxylabs_password"]
-
-    raw_user = config["oxylabs_username"]
-    country = config.get("oxylabs_country", "").strip().lower()
-    if country:
-        proxy_username = f"customer-{raw_user}-cc-{country}"
-    else:
-        proxy_username = f"customer-{raw_user}"
+    host = config.get("oxylabs_host", "")
+    port = config.get("oxylabs_port", 7777)
+    raw_user = config.get("oxylabs_username", "")
+    pwd = config.get("oxylabs_password", "")
+    country = config.get("oxylabs_country", "").strip()
+    proxy_server = f"http://{host}:{port}"
+    is_smartproxy = "smartproxy" in host.lower() or raw_user.startswith("smart-")
 
     async with async_playwright() as pw:
         for _ in range(n_requests):
             sess_id = uuid.uuid4().hex[:8]
-            session_proxy_user = f"{proxy_username}-sessid-{sess_id}"
+            if is_smartproxy:
+                user_base = raw_user
+                if country and "_area-" not in user_base and "-country-" not in user_base:
+                    user_base = f"{user_base}_area-{country.upper()}"
+                session_proxy_user = f"{user_base}_session-{sess_id}"
+            else:
+                c_lower = country.lower()
+                base_user = f"customer-{raw_user}-cc-{c_lower}" if c_lower else f"customer-{raw_user}"
+                session_proxy_user = f"{base_user}-sessid-{sess_id}"
+
+            proxy_password = pwd
             ua = random_user_agent(mode="desktop")
             start = time.perf_counter()
 
