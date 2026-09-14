@@ -115,14 +115,25 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
 
     # Bulunan harici CTA linkine post referer ile git
     if target_link:
-        return await page.goto(
-            target_link,
-            wait_until="domcontentloaded",
-            timeout=timeout_ms,
-            referer=post_url,
-        )
+        return await _safe_goto(page, target_link, timeout_ms, referer=post_url)
 
-    return None
+async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None):
+    """ERR_ABORTED ve ani redirect durumlarinda dayanikli sayfa yukleme."""
+    kwargs = {"wait_until": "domcontentloaded", "timeout": timeout_ms}
+    if referer:
+        kwargs["referer"] = referer
+    try:
+        return await page.goto(url, **kwargs)
+    except PlaywrightError as exc:
+        err_msg = str(exc)
+        if "ERR_ABORTED" in err_msg or "ERR_CONNECTION_RESET" in err_msg:
+            # Hizli redirect veya reset durumunda commit modunda dene
+            try:
+                kwargs["wait_until"] = "commit"
+                return await page.goto(url, **kwargs)
+            except Exception:
+                return None
+        raise
 
 
 async def run_worker(
@@ -211,12 +222,35 @@ async def run_worker(
                     try:
                         raw_list = cookies_data if isinstance(cookies_data, list) else cookies_data.get("cookies", [])
                         valid_cookies = []
+                        parsed_target = urllib.parse.urlparse(target_url)
+                        default_domain = parsed_target.hostname or "localhost"
+
                         for c in raw_list:
                             if isinstance(c, dict) and "name" in c and "value" in c:
-                                ck = dict(c)
-                                if "sameSite" in ck and ck["sameSite"] not in ("Strict", "Lax", "None"):
-                                    ck.pop("sameSite", None)
+                                ck = {
+                                    "name": str(c["name"]),
+                                    "value": str(c["value"]),
+                                    "path": str(c.get("path", "/")),
+                                }
+                                # Domain tanimla
+                                domain_val = c.get("domain", "")
+                                if domain_val:
+                                    ck["domain"] = str(domain_val)
+                                elif not c.get("url"):
+                                    ck["domain"] = default_domain
+
+                                if "url" in c and c["url"]:
+                                    ck["url"] = str(c["url"])
+
+                                if c.get("sameSite") in ("Strict", "Lax", "None"):
+                                    ck["sameSite"] = c["sameSite"]
+                                if "httpOnly" in c:
+                                    ck["httpOnly"] = bool(c["httpOnly"])
+                                if "secure" in c:
+                                    ck["secure"] = bool(c["secure"])
+
                                 valid_cookies.append(ck)
+
                         if valid_cookies:
                             await context.add_cookies(valid_cookies)
                     except Exception:
@@ -227,18 +261,14 @@ async def run_worker(
 
                 # ─── DURUM 1: FACEBOOK GONDERISI (REEL / POST / VIDEO) ───────
                 if is_fb_post:
-                    await page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    await _safe_goto(page, target_url, timeout_ms)
                     await asyncio.sleep(2)
 
                     response = await _resolve_cta_from_page(page, target_url, timeout_ms)
 
                 # ─── DURUM 2: DOGRUDAN BAGLANTI ──────────────────────────────
                 else:
-                    response = await page.goto(
-                        target_url,
-                        wait_until="domcontentloaded",
-                        timeout=timeout_ms,
-                    )
+                    response = await _safe_goto(page, target_url, timeout_ms)
 
                 # Facebook ara uyari ekrani (flx/warn) cikarsa butona bas
                 if "flx/warn" in page.url or "facebook.com/l.php" in page.url:
