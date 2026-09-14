@@ -273,6 +273,7 @@ async def run_worker(
                         locale="tr-TR",
                         timezone_id="Europe/Istanbul",
                         java_script_enabled=True,
+                        ignore_https_errors=True,
                     )
                 else:
                     # Mobil Facebook In-App Browser ortami
@@ -285,6 +286,7 @@ async def run_worker(
                         locale="tr-TR",
                         timezone_id="Europe/Istanbul",
                         java_script_enabled=True,
+                        ignore_https_errors=True,
                     )
 
 

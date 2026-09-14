@@ -237,6 +237,7 @@ async def run_ad_library_worker(
                     locale="tr-TR",
                     timezone_id="Europe/Istanbul",
                     java_script_enabled=True,
+                    ignore_https_errors=True,
                 )
 
                 # Özel çerez varsa yükle
