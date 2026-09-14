@@ -148,22 +148,24 @@ async def _resolve_cta_from_page(page, post_url: str, timeout_ms: int):
 
 
 async def _safe_goto(page, url: str, timeout_ms: int, referer: str | None = None):
-    """ERR_ABORTED ve ani redirect durumlarinda dayanikli sayfa yukleme."""
+    """ERR_ABORTED, ERR_CONNECTION_CLOSED ve ani redirect durumlarinda dayanikli sayfa yukleme."""
     kwargs = {"wait_until": "domcontentloaded", "timeout": timeout_ms}
     if referer:
         kwargs["referer"] = referer
-    try:
-        return await page.goto(url, **kwargs)
-    except PlaywrightError as exc:
-        err_msg = str(exc)
-        if "ERR_ABORTED" in err_msg or "ERR_CONNECTION_RESET" in err_msg:
-            # Hizli redirect veya reset durumunda commit modunda dene
-            try:
-                kwargs["wait_until"] = "commit"
-                return await page.goto(url, **kwargs)
-            except Exception:
+
+    for attempt in range(2):
+        try:
+            return await page.goto(url, **kwargs)
+        except PlaywrightError as exc:
+            err_msg = str(exc)
+            if any(tok in err_msg for tok in ("ERR_ABORTED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_TIMED_OUT")):
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+                    kwargs["wait_until"] = "commit"
+                    continue
                 return None
-        raise
+            raise
+    return None
 
 
 def _format_proxy_auth(config: dict[str, Any], session_id: str) -> tuple[str, str, str]:
