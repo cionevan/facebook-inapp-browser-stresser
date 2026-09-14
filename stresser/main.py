@@ -98,6 +98,23 @@ def ask_total_requests(cfg: dict) -> int:
 
 import json
 
+def ask_workers(cfg: dict) -> int:
+    """Eşzamanlı çalışacak worker sayısını sor."""
+    default = cfg.get("workers", 10)
+    prompt = f"  Eşzamanlı Worker Sayısı (Paralel İşlem) [{default}]: "
+    while True:
+        val = input(prompt).strip()
+        if not val:
+            workers = default
+            break
+        if val.isdigit() and int(val) > 0:
+            workers = int(val)
+            break
+        print("  [!] Lütfen 0'dan büyük geçerli bir tamsayı girin")
+    cfg["workers"] = workers
+    return workers
+
+
 def ask_cookies(cfg: dict) -> None:
     """Kullanıcıya özel Cookie / Session JSON kullanmak isteyip istemediğini sor."""
     prompt = "  Cookie JSON kullanılsın mı? (e/H): "
@@ -115,7 +132,8 @@ def ask_cookies(cfg: dict) -> None:
                     with open(path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     cfg["cookies_data"] = data
-                    print(f"  [OK] Cookie dosyası yüklendi: {path.name}")
+                    count_str = f"({len(data)} hesap havuzu)" if isinstance(data, list) and data and isinstance(data[0], list) else ""
+                    print(f"  [OK] Cookie dosyası yüklendi: {path.name} {count_str}")
                     break
                 except Exception as e:
                     print(f"  [!] JSON dosyası okunamadı: {e}")
@@ -133,9 +151,15 @@ def ask_cookies(cfg: dict) -> None:
 
 
 def print_banner(cfg: dict) -> None:
-    workers = cfg.get("workers", 5)
+    workers = cfg.get("workers", 10)
     total = cfg.get("total_requests", workers * cfg.get("requests_per_worker", 20))
-    has_cookie = "Evet" if cfg.get("cookies_data") else "Hayır"
+    cookies = cfg.get("cookies_data")
+    if isinstance(cookies, list) and cookies and isinstance(cookies[0], list):
+        has_cookie = f"Evet ({len(cookies)} hesap havuzu)"
+    elif cookies:
+        has_cookie = "Evet (Tekil Oturum)"
+    else:
+        has_cookie = "Hayır (Anonim Mobil FB)"
     sep = "─" * 50
     print(sep)
     print("  [>>]  Browser Stress Tester")
@@ -153,11 +177,12 @@ def print_banner(cfg: dict) -> None:
 
 async def main(cfg: dict) -> None:
     ask_target_url(cfg)
-    ask_cookies(cfg)
+    ask_workers(cfg)
     total_requests = ask_total_requests(cfg)
+    ask_cookies(cfg)
     print_banner(cfg)
 
-    workers = cfg.get("workers", 5)
+    workers = cfg.get("workers", 10)
     reporter = Reporter(total_expected=total_requests)
 
     # İstekleri worker'lar arasında dengeli dağıt

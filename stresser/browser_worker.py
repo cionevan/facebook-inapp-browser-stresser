@@ -199,6 +199,27 @@ def _format_proxy_auth(config: dict[str, Any], session_id: str) -> tuple[str, st
     return proxy_server, session_user, pwd
 
 
+def _pick_cookies_for_request(cookies_data: Any, request_index: int) -> list[dict] | None:
+    """
+    Cookie verisi tek bir liste ise onu döner.
+    Birden fazla hesap listesi içeren bir havuz ise (list of lists),
+    istek sırasına göre rotasyon yaparak sıradaki hesabı seçer.
+    """
+    if not cookies_data:
+        return None
+    if isinstance(cookies_data, list):
+        if cookies_data and isinstance(cookies_data[0], list):
+            # Çoklu hesap havuzu: sırayla birini seç
+            selected_account = cookies_data[request_index % len(cookies_data)]
+            return selected_account if isinstance(selected_account, list) else None
+        elif cookies_data and isinstance(cookies_data[0], dict):
+            # Tekil hesap cookie listesi
+            return cookies_data
+    elif isinstance(cookies_data, dict):
+        return cookies_data.get("cookies", [])
+    return None
+
+
 async def run_worker(
     worker_id: int,
     config: dict[str, Any],
@@ -207,7 +228,7 @@ async def run_worker(
 ) -> None:
     """
     Belirlenen sayida istek atar.
-    Her istek ayri bir browser context'te calisir (farkli UA + proxy session).
+    Her istek ayri bir browser context'te calisir (farkli UA + proxy session + sirali cookie havuzu).
     """
     target_url: str = config["target_url"]
     n_requests: int = num_requests if num_requests is not None else config["requests_per_worker"]
@@ -216,9 +237,10 @@ async def run_worker(
     is_fb_post = _is_facebook_post_url(target_url)
 
     async with async_playwright() as pw:
-        for _ in range(n_requests):
-            cookies_data = config.get("cookies_data")
-            is_desktop_cookie = bool(cookies_data)
+        for req_idx in range(n_requests):
+            raw_cookies_pool = config.get("cookies_data")
+            current_cookies = _pick_cookies_for_request(raw_cookies_pool, req_idx + (worker_id * 100))
+            is_desktop_cookie = bool(current_cookies)
             ua = random_user_agent(mode="desktop" if is_desktop_cookie else "mobile")
             sess_id = uuid.uuid4().hex[:8]
             proxy_server, session_proxy_user, proxy_password = _format_proxy_auth(config, sess_id)
@@ -242,15 +264,6 @@ async def run_worker(
                 )
 
                 if is_desktop_cookie:
-                    headers = {
-                        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Sec-Fetch-User": "?1",
-                        "Upgrade-Insecure-Requests": "1",
-                    }
                     context = await browser.new_context(
                         user_agent=ua,
                         viewport={"width": 1280, "height": 800},
@@ -260,25 +273,9 @@ async def run_worker(
                         locale="tr-TR",
                         timezone_id="Europe/Istanbul",
                         java_script_enabled=True,
-                        extra_http_headers=headers,
                     )
                 else:
                     # Mobil Facebook In-App Browser ortami
-                    is_ios = "iPhone" in ua
-                    headers = {
-                        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Sec-Fetch-User": "?1",
-                        "Upgrade-Insecure-Requests": "1",
-                    }
-                    if not is_ios:
-                        headers["X-Requested-With"] = "com.facebook.katana"
-                        headers["Sec-CH-UA-Mobile"] = "?1"
-                        headers["Sec-CH-UA-Platform"] = '"Android"'
-
                     context = await browser.new_context(
                         user_agent=ua,
                         viewport={"width": 393, "height": 852},
@@ -288,27 +285,23 @@ async def run_worker(
                         locale="tr-TR",
                         timezone_id="Europe/Istanbul",
                         java_script_enabled=True,
-                        extra_http_headers=headers,
                     )
 
 
-                # Kullanici ozel Cookie JSON'i vermisse context'e yukle
-                cookies_data = config.get("cookies_data")
-                if cookies_data:
+                # Hesap çerezlerini yükle
+                if current_cookies:
                     try:
-                        raw_list = cookies_data if isinstance(cookies_data, list) else cookies_data.get("cookies", [])
                         valid_cookies = []
                         parsed_target = urllib.parse.urlparse(target_url)
                         default_domain = parsed_target.hostname or "localhost"
 
-                        for c in raw_list:
+                        for c in current_cookies:
                             if isinstance(c, dict) and "name" in c and "value" in c:
                                 ck = {
                                     "name": str(c["name"]),
                                     "value": str(c["value"]),
                                     "path": str(c.get("path", "/")),
                                 }
-                                # Domain tanimla
                                 domain_val = c.get("domain", "")
                                 if domain_val:
                                     ck["domain"] = str(domain_val)
@@ -335,18 +328,30 @@ async def run_worker(
                 page = await context.new_page()
                 await stealth.apply_stealth_async(page)
 
-                # ─── DURUM 1: FACEBOOK GONDERISI (REEL / POST / VIDEO) ───────
+                # ─── DURUM 1: FACEBOOK GÖNDERİSİ / REEL / VİDEO İZLENİMİ ─────
                 if is_fb_post:
-                    await _safe_goto(page, target_url, timeout_ms)
-                    await asyncio.sleep(2)
+                    # Gönderiye git (sayfanın ve video/reklam alanının yüklenmesi)
+                    response = await _safe_goto(page, target_url, timeout_ms)
 
-                    response = await _resolve_cta_from_page(page, target_url, timeout_ms)
+                    # Görünürlük (Viewport Time): İnsan davranışı ve video/reklam gösterimi için
+                    # sayfada hafif kaydırma (scroll) yapıp 2.5 - 4 saniye izlenim bırakıyoruz.
+                    try:
+                        await page.mouse.wheel(0, 350)
+                        await asyncio.sleep(2.5)
+                        await page.mouse.wheel(0, -100)
+                    except Exception:
+                        await asyncio.sleep(2.5)
 
-                # ─── DURUM 2: DOGRUDAN BAGLANTI ──────────────────────────────
+                    # Gönderide varsa harici CTA linkini çöz ve tıkla
+                    cta_response = await _resolve_cta_from_page(page, target_url, timeout_ms)
+                    if cta_response:
+                        response = cta_response
+
+                # ─── DURUM 2: DOĞRUDAN BAĞLANTI ──────────────────────────────
                 else:
                     response = await _safe_goto(page, target_url, timeout_ms)
 
-                # Facebook ara uyari ekrani (flx/warn) cikarsa butona bas
+                # Facebook ara uyarı ekranı (flx/warn) çıkarsa tıkla
                 if "flx/warn" in page.url or "facebook.com/l.php" in page.url:
                     try:
                         btn = page.locator("a.selected, a._42g-, a:has-text('Bağlantıya Git'), a:has-text('Devam'), a:has-text('Follow Link')").first
@@ -356,9 +361,9 @@ async def run_worker(
                     except Exception:
                         pass
 
-                # Hedef sitenin networkunun oturmasini bekle
+                # Hedef sitenin networkünün oturmasını bekle
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=8000)
+                    await page.wait_for_load_state("networkidle", timeout=6000)
                 except Exception:
                     pass
 
